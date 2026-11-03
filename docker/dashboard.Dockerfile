@@ -9,7 +9,7 @@ FROM python:3.12-slim
 RUN pip install --no-cache-dir 'httpx[http2]==0.28.1' 'PyMuPDF==1.28.2'
 WORKDIR /app
 ENV DATA_DIR=/data
-COPY *.py ./
+COPY backend/*.py ./
 COPY config/ ./config/
 COPY --from=frontend /web/dist ./web/dist
 RUN useradd --uid 10001 --create-home collector && mkdir /data && chown collector:collector /data

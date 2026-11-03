@@ -5,7 +5,7 @@ services:
     image: local-jobs-browser:0.1
     build:
       context: .
-      dockerfile: Dockerfile.browser
+      dockerfile: docker/browser.Dockerfile
     init: true
     restart: unless-stopped
     user: pwuser
@@ -13,7 +13,7 @@ services:
     cap_drop: [ALL]
     security_opt:
       - no-new-privileges:true
-      - seccomp:./browser/seccomp_profile.json
+      - seccomp:./docker/seccomp_profile.json
     shm_size: 256m
     mem_limit: 1g
     cpus: 1.0
@@ -28,7 +28,9 @@ services:
   collector:
     profiles: [cli]
     image: local-linkedin-jobs:fresh-2
-    build: .
+    build:
+      context: .
+      dockerfile: docker/collector.Dockerfile
     init: true
     environment:
       PUBLIC_HTTP2: '1'
@@ -47,7 +49,7 @@ services:
     command: ["--host", "0.0.0.0", "--port", "8788", "--data-dir", "/data"]
     build:
       context: .
-      dockerfile: Dockerfile.ui
+      dockerfile: docker/dashboard.Dockerfile
     init: true
     environment:
       PUBLIC_HTTP2: '1'

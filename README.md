@@ -57,3 +57,14 @@ docker compose up -d --build dashboard
 Use `ps` and `logs` if the page does not open. If startup reports a port conflict, free port `8788` and rerun the start command. After updating the source, rerun the build command to apply the changes. If you enabled browser rendering, use the overlay command above to rebuild.
 
 Your saved profile and search history are stored in the `jobs-data` Docker volume. Stopping or rebuilding the dashboard preserves that volume. Removing the volume, for example with `docker compose down -v`, deletes the saved profile and history. Keep CVs, local settings, and exports out of Git.
+
+## Repository layout
+
+| Path | Contents |
+| --- | --- |
+| `backend/` | Python dashboard API, job collector, browser service, and document generation |
+| `web/` | React dashboard and frontend tests |
+| `docker/` | Image build files and browser security profile |
+| `config/` | Placeholder for optional local configuration |
+| `compose.yaml` | Local services and data volume |
+| `compose.browser.yaml` | Optional browser rendering overlay |

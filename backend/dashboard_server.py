@@ -668,7 +668,10 @@ def main():
     parser.add_argument("--reports-dir", type=Path)
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-    app = DashboardApp(Path(__file__).parent, args.data_dir, args.native_dir, args.reports_dir)
+    backend_dir = Path(__file__).resolve().parent
+    app_root = backend_dir.parent if backend_dir.name == "backend" else backend_dir
+    app = DashboardApp(backend_dir, args.data_dir, args.native_dir, args.reports_dir,
+                       dist_dir=app_root / "web/dist")
     server = make_server(app, args.host, args.port)
     signal.signal(signal.SIGTERM, lambda *_: threading.Thread(target=server.shutdown, daemon=True).start())
     print(f"Job desk ready at http://localhost:{args.port}", flush=True)

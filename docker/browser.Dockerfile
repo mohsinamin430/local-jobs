@@ -6,6 +6,6 @@ RUN python3 -c 'import os, tempfile, urllib.request, zipfile; version = os.envir
     && chmod 755 /opt/job-desk-browser/chrome-headless-shell-linux64/chrome-headless-shell \
     && /opt/job-desk-browser/chrome-headless-shell-linux64/chrome-headless-shell --version
 WORKDIR /app
-COPY *.py ./
+COPY backend/*.py ./
 USER pwuser
 ENTRYPOINT ["python3", "-u", "/app/browser_service.py"]
