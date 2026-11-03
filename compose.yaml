@@ -1,0 +1,71 @@
+name: local-jobs-2
+services:
+  browser:
+    profiles: [browser]
+    image: local-jobs-browser:0.1
+    build:
+      context: .
+      dockerfile: Dockerfile.browser
+    init: true
+    restart: unless-stopped
+    user: pwuser
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+      - seccomp:./browser/seccomp_profile.json
+    shm_size: 256m
+    mem_limit: 1g
+    cpus: 1.0
+    tmpfs:
+      - /tmp:size=256m,mode=1777
+      - /home/pwuser/.cache:size=32m,uid=1000,gid=1000
+    healthcheck:
+      test: [CMD, python3, -c, "import urllib.request; urllib.request.urlopen('http://localhost:8090/health',timeout=2)"]
+      interval: 20s
+      timeout: 3s
+      retries: 3
+  collector:
+    profiles: [cli]
+    image: local-linkedin-jobs:fresh-2
+    build: .
+    init: true
+    environment:
+      PUBLIC_HTTP2: '1'
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 256m
+    cpus: 1.0
+    volumes:
+      - jobs-data:/data
+      - ./config:/app/config:ro
+    tmpfs:
+      - /tmp:size=16m
+  dashboard:
+    image: local-linkedin-dashboard:fresh-2
+    command: ["--host", "0.0.0.0", "--port", "8788", "--data-dir", "/data"]
+    build:
+      context: .
+      dockerfile: Dockerfile.ui
+    init: true
+    environment:
+      PUBLIC_HTTP2: '1'
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 512m
+    cpus: 1.0
+    stop_grace_period: 20s
+    ports:
+      - "127.0.0.1:8788:8788"
+    volumes:
+      - jobs-data:/data
+      - ./config:/app/config:ro
+      - ./data:/native-data:ro
+      - ./reports:/reports:ro
+    tmpfs:
+      - /tmp:size=32m
+volumes:
+  jobs-data:

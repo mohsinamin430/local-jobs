@@ -1,0 +1,15 @@
+# Optional JavaScript rendering. Explicit access walls can still refuse Chromium.
+# docker compose -f compose.yaml -f compose.browser.yaml --profile browser up -d --build
+services:
+  dashboard:
+    environment:
+      BROWSER_RENDER_URL: http://browser:8090/render
+    depends_on:
+      browser:
+        condition: service_healthy
+  collector:
+    environment:
+      BROWSER_RENDER_URL: http://browser:8090/render
+    depends_on:
+      browser:
+        condition: service_healthy

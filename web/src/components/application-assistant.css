@@ -1,0 +1,18 @@
+.application-assistant > .button { margin: 12px 0; }
+.application-assistant textarea {
+  width: 100%;
+  margin-top: 8px;
+  padding: 10px;
+  font: inherit;
+  color: inherit;
+  background: #191d25;
+  border: 1px solid #424659;
+  border-radius: 7px;
+  resize: vertical;
+}
+.application-assistant dl { display: grid; gap: 8px; }
+.application-assistant dd { margin: 2px 0 0; }
+.application-assistant .table-scroll table { min-width: 370px; }
+.application-assistant td, .application-assistant th { padding: 8px; vertical-align: top; }
+.application-assistant a { color: #b9b3ff; text-decoration: underline; overflow-wrap: anywhere; }
+.application-assistant [role="alert"] { color: #f5a3ab; }
