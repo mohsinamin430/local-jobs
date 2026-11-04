@@ -8,17 +8,20 @@ import re
 from urllib.parse import parse_qs, urlencode, urljoin, urlsplit
 
 from collector import Document
+from job_feeds import FEEDS
 from personal_rules import canonical_url
 from public_research import PageParser, ResearchBlocked, job_evidence, objects
 
 SOURCES = {
     'linkedin': 'LinkedIn', 'totaljobs': 'Totaljobs', 'google':'Google',
+    **{source: feed.label for source, feed in FEEDS.items()},
 }
 # Kept only to recognize historical URLs and avoid rediscovering removed boards.
 REMOVED_SOURCES = {'indeed', 'glassdoor', 'welcome'}
 LEGACY_SOURCE_NAMES = {'indeed':'Indeed','glassdoor':'Glassdoor','welcome':'Welcome to the Jungle'}
 DOMAINS = {'indeed': 'indeed.com', 'totaljobs': 'totaljobs.com',
-           'glassdoor': 'glassdoor.co.uk', 'welcome': 'welcometothejungle.com', 'google':'google.com'}
+           'glassdoor': 'glassdoor.co.uk', 'welcome': 'welcometothejungle.com', 'google':'google.com',
+           **{source: feed.domain for source, feed in FEEDS.items()}}
 
 
 class DiscoveryIncomplete(ValueError):
@@ -67,12 +70,17 @@ def expand_plan(linkedin_plan, config):
     expanded = []
     for original in linkedin_plan:
         for source in sources:
+            if source in FEEDS:
+                continue
             item = {**original, 'source': source}
             bucket = next((key for key, value in {'remote': '2', 'hybrid': '3', 'on-site': '1'}.items()
                            if value == item['params'].get('f_WT')), 'unknown')
             if source != 'linkedin':
                 item['url'] = search_url(source, item['params']['keywords'], bucket, config=config)
             expanded.append(item)
+    for source in sources:
+        if source in FEEDS:
+            expanded.extend(FEEDS[source].plans(linkedin_plan, config))
     return expanded
 
 

@@ -68,3 +68,10 @@ Your saved profile and search history are stored in the `jobs-data` Docker volum
 | `config/` | Placeholder for optional local configuration |
 | `compose.yaml` | Local services and data volume |
 | `compose.browser.yaml` | Optional browser rendering overlay |
+
+## Employer feeds
+
+Select **Greenhouse** or **SmartRecruiters** in the dashboard to check employer career feeds.
+The starter watchlist covers Monzo through Greenhouse and Version 1 through SmartRecruiters.
+These are employer-specific feeds. Job Desk still checks the role, freshness, UK eligibility,
+and work arrangement before including a vacancy.

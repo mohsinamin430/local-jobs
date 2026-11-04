@@ -114,7 +114,7 @@ def _date_interval(value):
 
 def _freshness(job, now, policy):
     cutoff = now - timedelta(hours=policy.get("max_age_hours", 24))
-    accepted_fields = {"dateposted", "datepublished", "postedon", "publishedat", "postedat", "postingdate", "publicationdate", "firstpublishedat"}
+    accepted_fields = {"dateposted", "datepublished", "postedon", "publishedat", "postedat", "postingdate", "publicationdate", "firstpublishedat", "firstpublished", "releaseddate"}
     forbidden_sources = re.compile(r"snippet|search|crawl|updated|modified|verified.live", re.I)
     evidence, reasons = [], []
     exact_intervals = []

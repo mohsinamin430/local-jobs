@@ -23,7 +23,7 @@ import time
 from urllib.parse import parse_qs, unquote, urlsplit
 from uuid import uuid4
 from rate_control import LinkedInControl, combined_cooldown, source_cooldowns
-from job_boards import SOURCES, enabled_sources, search_url
+from job_boards import FEEDS, SOURCES, enabled_sources, search_url
 
 LOG = logging.getLogger("job-desk")
 SAFE_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,100}\Z")
@@ -522,7 +522,7 @@ class DashboardApp:
         resume_available = bool(valid_checkpoint_sources and not active and checkpoint.get('resumable') and checkpoint.get('signature')==signature and time.time()-checkpoint.get('created_at',0)<86400)
         return {"runs": rows, "active": active, "profile": profile, "sources": list(self.store.sources), "issues": issues,
                 'googleSearches':[{'role':role,'bucket':bucket,'url':search_url('google',role,bucket,config=config)} for role in config.get('roleVariants',[]) for bucket in profile.get("workModels", []) if "google" in enabled_sources(config)],
-                'publicSearches':[{'source':source,'role':role,'bucket':bucket,'url':search_url(source,role,bucket,config=config)} for source in enabled_sources(config) if source!='linkedin' for role in config.get('roleVariants',[]) for bucket in profile.get("workModels", [])],
+                'publicSearches':[{'source':source,'role':role,'bucket':bucket,'url':search_url(source,role,bucket,config=config)} for source in enabled_sources(config) if source not in FEEDS and source!='linkedin' for role in config.get('roleVariants',[]) for bucket in profile.get("workModels", [])],
                 'rateLimit':combined_cooldown(self.data,list(SOURCES)), 'sourceRates':source_cooldowns(self.data,list(SOURCES)),
                 'jobSources':[{'id':key,'name':value} for key,value in SOURCES.items()], 'resumeAvailable':resume_available,
                 'resumeOptions':{'id':checkpoint.get('id'),'maxJobs':checkpoint.get('max_jobs'),'sources':checkpoint.get('sources',['linkedin'])}}

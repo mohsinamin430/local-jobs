@@ -14,6 +14,7 @@ from uuid import uuid4
 import collector as c
 import job_boards as boards
 from public_research import ResearchBlocked, ResearchLimit
+from job_feeds import fresh_candidate, matches_role
 from search_scheduler import Action, Candidate, RequestBudget, Worker
 
 UTC = timezone.utc
@@ -149,6 +150,71 @@ def board_steps(context, source_id, states, research, client):
             if report['status'] in {'not_checked','checked'}:
                 report.update(status='not_checked' if report['status']=='not_checked' else 'limited',
                               end='source_unavailable: '+stopped if stopped else 'run_limit')
+
+
+def feed_steps(context, source, states, research):
+    feed = boards.FEEDS[source]
+    errors = (ValueError, KeyError, TypeError, AttributeError, HTTPError, URLError, TimeoutError, ResearchLimit)
+    detail_errors = (ResearchBlocked, *errors)
+    queue = deque(states)
+    while queue and len(context.seen) < context.limit:
+        state = queue.popleft()
+        search, report = state["search"], state["report"]
+        if report["pages"] >= context.plan["maxPagesPerSearch"] or report["examined"] >= context.plan["maxJobsPerSearch"]:
+            report.update(status="limited", end="configured_limit")
+            continue
+        try:
+            cards, consumed, has_more = yield Action(
+                lambda: feed.page(search, state["offset"], research.get), f"Read {feed.label} listings")
+            if has_more and not consumed:
+                raise ValueError("Feed returned an empty page before the end of the result set")
+        except ResearchBlocked as error:
+            report.update(status="blocked", end=str(error))
+            context.summary["errors"].append(f"{feed.label}: {error}")
+            continue
+        except errors as error:
+            report.update(status="incomplete" if isinstance(error, ResearchLimit) else "failed", end=str(error))
+            context.summary["errors"].append(f"{feed.label}: {error}")
+            continue
+        report["pages"] += 1
+        state["offset"] += consumed
+        for card in cards:
+            if len(context.seen) >= context.limit or report["examined"] >= context.plan["maxJobsPerSearch"]:
+                report.update(status="limited", end="candidate_limit")
+                break
+            if not card.get("url") or card["id"] in context.seen or not matches_role(context, card["title"]):
+                continue
+            now = datetime.now(UTC)
+            if not fresh_candidate(card, now, context.policy):
+                continue
+            context.seen.add(card["id"])
+            report["examined"] += 1
+            context.summary["examined"] += 1
+            def detail():
+                job = deepcopy(card)
+                feed.detail(job, search, research.get)
+                job.update(source=source, found_on=[source], source_urls=[job["url"]], observed_at=c.iso(now))
+                if source != "greenhouse":
+                    job = context.api.enrich_job(job, research, context.policy)
+                return job
+
+            try:
+                job = yield Action(detail, f"Verify {feed.label} job")
+            except detail_errors as error:
+                context.decision(card, {"decision": "unverified", "reasons": [f"detail_unavailable: {error}"]})
+                continue
+            yield Candidate(job)
+        else:
+            if has_more:
+                report.update(status="checked", end="next_page_pending")
+                queue.append(state)
+            else:
+                status = "exhausted" if consumed or report["pages"] > 1 else "confirmed_zero"
+                report.update(status=status, end="no_more_results")
+    for state in queue:
+        report = state["report"]
+        if report["status"] in {"not_checked", "checked"}:
+            report.update(status="limited", end="run_limit")
 
 
 def contact_steps(context,research):
@@ -348,7 +414,10 @@ def run_personalized(api,config,data_dir,max_jobs=None):
     for source in context.sources:
         client = c.Client(plan['requestDelaySeconds'],limiter=limiter,checkpoint=checkpoint)
         context.clients.append(client)
-        workers[source] = Worker(boards.SOURCES[source],board_steps(context,source,states[source],research_client(source),client))
+        research = research_client(source)
+        steps = feed_steps(context, source, states[source], research) if source in boards.FEEDS else board_steps(
+            context, source, states[source], research, client)
+        workers[source] = Worker(boards.SOURCES[source], steps)
     context.persist(force=True)
     print(json.dumps({'run_id':run_id,'event':'started','resumed':checkpoint.resumed}),flush=True)
     try:

@@ -7,6 +7,15 @@ from urllib.request import Request, urlopen
 def needs_render(url, body):
     import job_boards as boards
     from public_research import PageParser
+    parts = urlsplit(url)
+    api_paths = {
+        "boards-api.greenhouse.io": "/v1/boards/",
+        "api.smartrecruiters.com": "/v1/companies/",
+    }
+    # Feed adapters validate JSON. Rendering an API response as HTML destroys its structure.
+    api_path = api_paths.get(parts.hostname)
+    if api_path and parts.path.startswith(api_path):
+        return False
     source = next((key for key in boards.DOMAINS if boards.owns(key, url)), None)
     if not source or source not in boards.SOURCES:
         return False
@@ -14,7 +23,7 @@ def needs_render(url, body):
         return True
     try:
         # Known discovery pages must expose recognizable links or explicit zero.
-        path = urlsplit(url).path
+        path = parts.path
         is_search = (source == 'google' or
                      source == 'indeed' and path == '/jobs' or
                      source == 'totaljobs' and path.startswith('/jobs/') or
