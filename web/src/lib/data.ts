@@ -12,6 +12,15 @@ export function safeUrl(value: unknown): string {
   } catch { return ''; }
 }
 
+export function sourceLabel(source: string): string {
+  const labels: Record<string, string> = { jobsbyqais: 'Jobs by Qais', remoteok: 'Remote OK', welcome: 'Welcome to the Jungle', linkedin: 'LinkedIn', linkedin_public_guest: 'LinkedIn' };
+  return labels[source] || source.charAt(0).toUpperCase() + source.slice(1);
+}
+
+export function hiddenAdvertTitle(title: string): boolean {
+  return /\btrainee(?:ship)?\b|\bno[\s-]+(?:(?:prior|previous|commercial)[\s-]+)?experience[\s-]+(?:is[\s-]+)?(?:required|needed|necessary)\b/i.test(title);
+}
+
 export function normalizeJob(raw: Record<string, unknown>, index: number, imported = false): Job {
   const fields = new Map(Object.entries(raw).map(([key, value]) => [key.toLowerCase().replace(/[^a-z0-9]/g, ''), value]));
   const get = (...keys: string[]) => keys.map(key => string(fields.get(key))).find(Boolean) || '';

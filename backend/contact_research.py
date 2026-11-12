@@ -278,7 +278,7 @@ def discover_and_verify_contact(job, fetch, search, options=None):
         result["contact_attempts"].append({"stage": "identity", "status": "incomplete", "reason": "Vacancy employer missing"})
         return result
     agencies = {_company(value) for value in options.get("allowed_agencies", [])}
-    is_agency = _company(company) in agencies or job.get("employer_quality") == "allowed_agency"
+    is_agency = _company(company) in agencies or job.get("employer_quality") in {"allowed_agency", "recruitment_agency"}
     attempts, verified, seen, used = result["contact_attempts"], [], set(), 0
     blocked, incomplete = False, False
 

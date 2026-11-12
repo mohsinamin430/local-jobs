@@ -5,7 +5,7 @@ interface Profile {
   name: string; title: string; city: string; email: string; trackerUrl: string;
   roles: string[]; workModels: string[]; sources: string[]; maxAgeHours: number;
   skills: string[]; evidence: string; projects: string; education: string; links: string[];
-  excludedEmployers: string[]; allowedAgencies: string[]; contactResearch: boolean;
+  excludedEmployers: string[]; allowedAgencies: string[]; contactResearch: boolean; includeRecruiters: boolean;
 }
 interface Settings { values: Profile; configured: boolean }
 const steps = ['Job search', 'Experience & CV', 'Review'];
@@ -74,7 +74,8 @@ export function ProfileSetup({ boards, onSaved }: { boards: { id: string; name: 
             <option value="24">Past 24 hours</option><option value="72">Past 3 days</option><option value="168">Past 7 days</option>
           </select></label>
           <LineList label="Excluded employers (optional)" value={values.excludedEmployers} onChange={value => change('excludedEmployers', value)} />
-          <LineList label="Recruitment agency exceptions (optional)" value={values.allowedAgencies} onChange={value => change('allowedAgencies', value)} />
+          <label className="profile-check"><input type="checkbox" checked={values.includeRecruiters} onChange={event => change('includeRecruiters', event.target.checked)} />Include recruitment agencies</label>
+          {!values.includeRecruiters && <LineList label="Recruitment agency exceptions (optional)" value={values.allowedAgencies} onChange={value => change('allowedAgencies', value)} />}
         </>}
         {step === 1 && <>
           <label>Full name<input value={values.name} onChange={event => change('name', event.target.value)} /></label>
@@ -94,6 +95,7 @@ export function ProfileSetup({ boards, onSaved }: { boards: { id: string; name: 
           <p><strong>{values.name}</strong> · {values.title} · {values.city}, UK</p>
           <p>{values.roles.filter(role => role.trim()).length} job titles × {values.workModels.length} work arrangements × {values.sources.length} sources. Jobs must be posted within {values.maxAgeHours} hours.</p>
           <p>{values.roles.filter(role => role.trim()).join(' · ')}</p>
+          <p>{values.includeRecruiters ? 'Recruitment agencies included.' : 'Agency exceptions apply.'}</p>
           <p>Documents use the standard Job Desk template. Review the experience text before saving. It will appear in your CV.</p>
           <label className="profile-check"><input type="checkbox" checked={values.contactResearch} onChange={event => change('contactResearch', event.target.checked)} />Research public hiring contacts</label>
           <label>Application tracker link (optional)<input type="url" value={values.trackerUrl} onChange={event => change('trackerUrl', event.target.value)} placeholder="https://" /></label>

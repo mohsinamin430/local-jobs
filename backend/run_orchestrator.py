@@ -13,7 +13,9 @@ from uuid import uuid4
 
 import collector as c
 import job_boards as boards
+from browser_client import BrowserTransportError
 from public_research import ResearchBlocked, ResearchLimit
+from personal_rules import hidden_advert_title
 from job_feeds import fresh_candidate, matches_role
 from search_scheduler import Action, Candidate, RequestBudget, Worker
 
@@ -40,7 +42,12 @@ def board_steps(context, source_id, states, research, client):
             if report['pages']>=plan['maxPagesPerSearch'] or report['examined']>=plan['maxJobsPerSearch']:
                 report.update(status='limited',end='configured_limit')
                 continue
-            url = search['url']+'&start='+str(state['offset']) if source_id=='linkedin' else boards.search_url(source_id,search['params']['keywords'],bucket,report['pages'],context.config)
+            if source_id == 'linkedin':
+                url = search['url'] + '&start=' + str(state['offset'])
+            elif source_id == 'totaljobs':
+                url = state.get('next_url', search['url'])
+            else:
+                url = boards.search_url(source_id, search['params']['keywords'], bucket, report['pages'], context.config)
             fetch = client.get if source_id=='linkedin' else research.get
             LOG.info('Search: %s / %s / %s page=%d',boards.SOURCES[source_id],search['params']['keywords'],bucket,report['pages']+1)
             try:
@@ -57,25 +64,30 @@ def board_steps(context, source_id, states, research, client):
                     summary['warnings'].append('Welcome to the Jungle uses indexed-link discovery with incomplete coverage; exact listing publication time is still required.')
                 report.update(pages=report['pages']+1,status='checked')
                 if not cards:
-                    stripped = re.sub(r'<!--.*?-->','',body,flags=re.S).strip()
-                    if stripped and not re.search(r'no (?:matching )?(?:results|jobs)(?: found)?|no more jobs|0 jobs found',body,re.I):
-                        raise ValueError('Search response has no recognizable public job cards')
+                    # Other board parsers already require explicit empty-result evidence.
+                    if source_id == 'linkedin':
+                        stripped = re.sub(r'<!--.*?-->','',body,flags=re.S).strip()
+                        if stripped and not re.search(r'no (?:matching )?(?:results|jobs)(?: found)?|no more jobs|0 jobs found',body,re.I):
+                            raise ValueError('Search response has no recognizable public job cards')
                     report.update(status='confirmed_zero' if not report['examined'] else 'exhausted',end='no_more_results')
                     continue
+                next_url, last_page = boards.totaljobs_pagination(body, url) if source_id == 'totaljobs' else ('', False)
             except (c.AccessError,ResearchBlocked) as error:
                 report.update(status='blocked',end=str(error))
                 summary['errors'].append(f'{boards.SOURCES[source_id]}: {error}')
                 stopped = str(error)
                 return 'blocked'
-            except (boards.DiscoveryIncomplete,ResearchLimit) as error:
+            except (boards.DiscoveryIncomplete, ResearchLimit, BrowserTransportError) as error:
                 report.update(status='incomplete',end=str(error))
                 summary['warnings'].append(f'{boards.SOURCES[source_id]}: {error}')
+                if source_id == 'totaljobs' and not isinstance(error, ResearchLimit):
+                    continue
                 stopped = str(error)
                 return 'incomplete'
             except (ValueError,HTTPError,URLError,TimeoutError) as error:
                 report.update(status='failed',end=str(error))
                 summary['errors'].append(f'{boards.SOURCES[source_id]} / {search["params"]["keywords"]}: {error}')
-                if source_id!='linkedin':
+                if source_id not in {'linkedin', 'totaljobs'}:
                     stopped = str(error)
                     return 'failed'
                 continue
@@ -85,6 +97,7 @@ def board_steps(context, source_id, states, research, client):
             if not fresh:
                 report.update(status='limited',end='repeated_page')
                 continue
+            sample_truncated = context.max_jobs is not None and len(fresh) > 1
             if context.max_jobs is not None: fresh = fresh[:1]
             for job in fresh:
                 job['search_observed_at'] = checkpoint.observed_at(url)
@@ -94,6 +107,9 @@ def board_steps(context, source_id, states, research, client):
                 report['examined'] += 1
                 context.seen.add(job['id'])
                 summary['examined'] += 1
+                if hidden_advert_title(job['title']):
+                    context.decision(job, {'decision': 'reject', 'reasons': ['Title advertises a trainee role or no experience required']})
+                    continue
                 if source_id=='linkedin' and context.config.get('titlePattern') and not re.search(context.config['titlePattern'],job['title'],re.I):
                     context.decision(job,{'decision':'reject','reasons':['out_of_scope_title']})
                     continue
@@ -135,6 +151,10 @@ def board_steps(context, source_id, states, research, client):
                         context.decision(job,{'decision':'unverified','reasons':['Google result has no verified employer-domain or company-linked ATS association']})
                         continue
                 yield Candidate(job)
+            else:
+                if last_page:
+                    report.update(status='limited' if sample_truncated else 'exhausted',
+                                  end='sample_limit' if sample_truncated else 'last_page')
             if report['status']=='checked':
                 if report.get('discovery_mode')=='public_search_fallback':
                     report.update(status='incomplete',end='public_search_fallback; native date filter and complete coverage unavailable')
@@ -142,6 +162,12 @@ def board_steps(context, source_id, states, research, client):
                     report.update(status='incomplete',end='indexed Google links; complete board coverage cannot be established')
                     queue.append(state)
                 else:
+                    if source_id == 'totaljobs':
+                        if next_url:
+                            state['next_url'] = next_url
+                        elif report['pages'] < plan['maxPagesPerSearch'] and not last_page:
+                            report.update(status='incomplete', end='Totaljobs did not expose a verifiable next page or last-page indicator')
+                            continue
                     report['end'] = 'next_page_pending'
                     queue.append(state)
     finally:
@@ -154,6 +180,7 @@ def board_steps(context, source_id, states, research, client):
 
 def feed_steps(context, source, states, research):
     feed = boards.FEEDS[source]
+    exact_feed = source in boards.EXTRA_FEEDS
     errors = (ValueError, KeyError, TypeError, AttributeError, HTTPError, URLError, TimeoutError, ResearchLimit)
     detail_errors = (ResearchBlocked, *errors)
     queue = deque(states)
@@ -173,11 +200,15 @@ def feed_steps(context, source, states, research):
             context.summary["errors"].append(f"{feed.label}: {error}")
             continue
         except errors as error:
-            report.update(status="incomplete" if isinstance(error, ResearchLimit) else "failed", end=str(error))
+            report.update(status="incomplete" if isinstance(error, (ResearchLimit, boards.DiscoveryIncomplete)) else "failed", end=str(error))
             context.summary["errors"].append(f"{feed.label}: {error}")
             continue
         report["pages"] += 1
-        state["offset"] += consumed
+        # Cursor feeds return the next token instead of an offset flag.
+        if isinstance(has_more, str):
+            state["offset"] = has_more
+        elif isinstance(state["offset"], int):
+            state["offset"] += consumed
         for card in cards:
             if len(context.seen) >= context.limit or report["examined"] >= context.plan["maxJobsPerSearch"]:
                 report.update(status="limited", end="candidate_limit")
@@ -192,15 +223,20 @@ def feed_steps(context, source, states, research):
             context.summary["examined"] += 1
             def detail():
                 job = deepcopy(card)
-                feed.detail(job, search, research.get)
-                job.update(source=source, found_on=[source], source_urls=[job["url"]], observed_at=c.iso(now))
+                feed.detail(job, search, research if exact_feed else research.get)
+                job.setdefault("source_urls", [job["url"]])
+                job.update(source=source, found_on=[source], observed_at=c.iso(now))
                 if source != "greenhouse":
                     job = context.api.enrich_job(job, research, context.policy)
+                if exact_feed and not (job.get("structured_dates") or job.get("detail_posted_text")):
+                    raise boards.DiscoveryIncomplete("Exact advert did not expose a publication date")
                 return job
 
             try:
                 job = yield Action(detail, f"Verify {feed.label} job")
             except detail_errors as error:
+                if exact_feed:
+                    state.setdefault("detail_issue", str(error))
                 context.decision(card, {"decision": "unverified", "reasons": [f"detail_unavailable: {error}"]})
                 continue
             yield Candidate(job)
@@ -208,6 +244,8 @@ def feed_steps(context, source, states, research):
             if has_more:
                 report.update(status="checked", end="next_page_pending")
                 queue.append(state)
+            elif state.get("detail_issue"):
+                report.update(status="incomplete", end=state["detail_issue"])
             else:
                 status = "exhausted" if consumed or report["pages"] > 1 else "confirmed_zero"
                 report.update(status=status, end="no_more_results")
@@ -248,10 +286,11 @@ class RunContext:
             'policy_sha256':self.policy_hash,'bucket_targets':config.get('bucketTargets',{'remote':100,'hybrid':100,'on-site':100}),
             'bucket_candidates':{},'verification_sources':[],'job_sources':self.sources,'resumed':checkpoint.resumed,
             'checkpoint_id':checkpoint.state['id'],'phase':'discovery','source_progress':{},'source_breakdown':{}}
-        rows,self.summary['cross_digest_sources'] = api.index_jobs(config,execution_started)
+        rows,self.summary['cross_digest_sources'] = api.index_jobs(config,execution_started,data_dir)
         self.external_keys = set().union(*(api.key_set(row) for row in rows)) if rows else set()
         if any(row['status']!='ok' for row in self.summary['cross_digest_sources']):
-            self.summary['warnings'].append('Cross-digest deduplication is incomplete: a current index of the other digest sources is unavailable')
+            details = "; ".join(str(row.get('error', 'External source was not fully checked')) for row in self.summary['cross_digest_sources'] if row['status']!='ok')
+            self.summary['warnings'].append('External Google Sheets comparison is incomplete: ' + details + " Deduplication across this app's boards is still applied.")
         if max_jobs is not None: self.summary['warnings'].append(f'Bounded live check examines at most {max_jobs} unique candidates; this is not the complete daily digest')
 
     def decision(self,job,result):
@@ -397,7 +436,7 @@ def run_personalized(api,config,data_dir,max_jobs=None):
     def research_client(source=None):
         research = api.PublicResearch(max_requests=options.get('maxRequests',300),delay=options.get('requestDelaySeconds',2))
         research.limiter,research.checkpoint,research.source_controls,research.budget = limiter,checkpoint,controls,budget
-        if source=='google':
+        if source == 'google' or source in boards.EXTRA_FEEDS:
             from rate_control import OriginControl
             research.other_limiter=lambda url:OriginControl(data_dir,url,minimum=2,maximum=4)
         context.researchers.append(research)

@@ -1,11 +1,12 @@
 """Read-only job feeds. The existing collector still qualifies and deduplicates jobs."""
 
+from datetime import timedelta
 import html
 import json
 import re
 from urllib.parse import urlencode, urlsplit
 
-from personal_rules import _engineering_role, _freshness
+from personal_rules import _date_interval, _engineering_role, _freshness, hidden_advert_title
 from public_research import PageParser
 
 
@@ -25,6 +26,8 @@ def date_evidence(field, value, source, url):
 
 
 def matches_role(context, title):
+    if hidden_advert_title(title):
+        return False
     pattern = context.config.get("titlePattern")
     if pattern:
         return bool(re.search(pattern, title, re.I))
@@ -37,6 +40,13 @@ def matches_role(context, title):
 
 def fresh_candidate(job, now, policy):
     # Date-only values can still be corroborated by the exact public listing.
+    try:
+        search_date = _date_interval(job.get("feed_search_date"))
+    except ValueError:
+        search_date = None
+    cutoff = now - timedelta(hours=policy.get("max_age_hours", 24))
+    if search_date and search_date[1] < cutoff:
+        return False
     return _freshness(job, now, policy)[0] != "reject"
 
 

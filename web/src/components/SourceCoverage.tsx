@@ -17,7 +17,7 @@ export function SourceCoverage({ summary, sources }: { summary?: Record<string,u
       return <article key={id} className="source-card"><div><strong>{String(record.name || id)}</strong><Badge value={String(record.status || 'incomplete')} /></div>
         <p>{Number(record.examined) || 0} examined · {Number(record.qualifying) || 0} qualifying</p>
         {record.status==='cooling_down' && Number(record.retryAtEpoch)>0 && <p>Resumes automatically at {new Date(Number(record.retryAtEpoch)*1000).toLocaleTimeString('en-GB',{timeZone:'Europe/London'})}. Results stay in this run.</p>}
-        {errors.length>0 && <details><summary>Source notes</summary><ul>{errors.map((error,index)=><li key={index}>{error}</li>)}</ul></details>}
+        {errors.length>0 && <details open={record.status === 'blocked'}><summary>Source notes</summary><ul>{errors.map((error,index)=><li key={index}>{error}</li>)}</ul></details>}
         {record.status==='incomplete' && !errors.length && <span className="subtle-note">Search limits reached or searches remain unchecked.</span>}
       </article>;
     })}</div>

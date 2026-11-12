@@ -16,3 +16,69 @@
 .application-assistant td, .application-assistant th { padding: 8px; vertical-align: top; }
 .application-assistant a { color: #b9b3ff; text-decoration: underline; overflow-wrap: anywhere; }
 .application-assistant [role="alert"] { color: #f5a3ab; }
+
+.listing-fields { border: 0; padding: 0; margin: 0; min-width: 0; display: grid; gap: 16px; }
+.listing-fields > .button { justify-self: start; }
+.manual-listing { max-width: 1000px; }
+.manual-listing .drawer-section { border: 0; margin: 0; padding: 0; }
+.manual-listing-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.manual-listing label { display: grid; gap: 8px; }
+.manual-listing input, .manual-listing select {
+  width: 100%; min-width: 0; padding: 10px; border: 1px solid #424659; border-radius: 7px;
+  font: inherit; color: inherit; background: #191d25;
+}
+.manual-listing .application-assistant table { min-width: 600px; }
+@media (max-width: 650px) { .manual-listing-grid { grid-template-columns: 1fr; } }
+
+.application-assistant .assessment-summary {
+  --assessment-accent: #b1b8c5;
+  --assessment-surface: #232731;
+  margin: 22px 0 16px;
+  padding: 18px;
+  border: 1px solid #3c4453;
+  border-left: 4px solid var(--assessment-accent);
+  border-radius: 9px;
+  background: var(--assessment-surface);
+}
+.application-assistant .assessment-green { --assessment-accent: #9dddc8; --assessment-surface: #172a25; }
+.application-assistant .assessment-blue { --assessment-accent: #a6c5ee; --assessment-surface: #1a2639; }
+.application-assistant .assessment-amber { --assessment-accent: #ddc28d; --assessment-surface: #30291c; }
+.application-assistant .assessment-red { --assessment-accent: #f5a3ab; --assessment-surface: #331e27; }
+.application-assistant .assessment-summary h4 { margin: 0 0 10px; }
+.application-assistant .assessment-summary .badge { font-size: 12px; }
+.application-assistant .assessment-summary p { color: #d5dce8; }
+.application-assistant .assessment-flags {
+  margin: 14px 0;
+  padding: 14px 16px 14px 34px;
+  border: 1px solid #6b5835;
+  border-radius: 8px;
+  background: #30291c;
+  color: #f1d6a4;
+}
+.application-assistant .assessment-flags li + li { margin-top: 8px; }
+.application-assistant .requirement-row > td:first-child { border-left: 3px solid #5f6a7b; }
+.application-assistant .requirement-green > td:first-child { border-left-color: #9dddc8; background: #172a254d; }
+.application-assistant .requirement-blue > td:first-child { border-left-color: #a6c5ee; background: #1a26394d; }
+.application-assistant .requirement-amber > td:first-child { border-left-color: #ddc28d; background: #30291c66; }
+.application-assistant .requirement-red > td:first-child { border-left-color: #f5a3ab; background: #331e2766; }
+.application-assistant .assessment-unknown { color: #9ba7bb; }
+.application-assistant .assessment-review { border-left: 3px solid #ddc28d; padding-left: 12px; }
+.application-assistant .assessment-review dt { color: #f1d6a4; }
+.application-assistant .assessment-error {
+  margin: 14px 0;
+  padding: 12px 14px;
+  border: 1px solid #75404c;
+  border-radius: 8px;
+  background: #331e27;
+  color: #ffc0c7;
+}
+.application-assistant .assessment-downloads {
+  list-style: none;
+  display: grid;
+  gap: 10px;
+  padding: 14px 16px;
+  border: 1px solid #3d6c5b;
+  border-radius: 8px;
+  background: #172a25;
+}
+.application-assistant .assessment-downloads a { color: #b9efda; }

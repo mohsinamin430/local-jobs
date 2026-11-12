@@ -33,14 +33,17 @@ ALIASES = {
 CORE_GROUPS = ("AWS", "Terraform", "Docker", "Linux", "CI/CD", "ECS", "Networking")
 GAP_GROUPS = ("Kubernetes", "Helm", "Ansible", "Azure", "GCP", "Python", "PowerShell")
 ROLE_PATTERN = re.compile(
-    r"\b(?:dev\s*ops|devsecops|site\s+reliability|sre|infrastructure|cloud|platform)\b"
+    r"\b(?:dev\s*ops|devsecops|site\s+reliability|sre|cloud|platform)\b"
     r"|\b(?:build|release)(?:\s*(?:&|and)\s*release)?\s+engineer\b", re.I
 )
+INFRASTRUCTURE_ENGINEERING = re.compile(r"\binfrastructure[\s/-]+engineer(?:ing)?\b", re.I)
+NON_IT_INFRASTRUCTURE = re.compile(r"\b(?:civil|mechanical|structural|geotechnical|highways?|water|wastewater|drainage)\b", re.I)
 NON_ENGINEERING_ROLE = re.compile(
     r"\b(?:sales|account\s+(?:executive|manager|director)|product\s+(?:manager|management|owner)|"
     r"recruiter|recruitment\s+(?:consultant|manager)|talent\s+acquisition|marketing|"
     r"business\s+development|customer\s+success|technical\s+writer|developer\s+advocate)\b", re.I
 )
+HIDDEN_ADVERT_TITLE = re.compile(r"\btrainee(?:ship)?\b|\bno[\s-]+(?:(?:prior|previous|commercial)[\s-]+)?experience[\s-]+(?:is[\s-]+)?(?:required|needed|necessary)\b", re.I)
 NON_VACANCY = re.compile(
     r"\b(?:fellowship|traineeship|training\s+(?:course|programme|program)|bootcamp|"
     r"founder\s+(?:opportunity|fellowship|programme|program)|co[- ]founder|talent\s+(?:pool|community))\b", re.I
@@ -68,11 +71,20 @@ def _has(text, terms):
     return any(re.search(r"(?<!\w)" + re.escape(term) + r"(?!\w)", text, re.I) for term in terms)
 
 
+def hidden_advert_title(title):
+    return bool(HIDDEN_ADVERT_TITLE.search(_plain(title)))
+
+
 def _engineering_role(title):
-    if not ROLE_PATTERN.search(title) or NON_ENGINEERING_ROLE.search(title):
+    if NON_ENGINEERING_ROLE.search(title):
         return False
-    if re.search(r"\b(?:engineer(?:ing)?|sre)\b", title, re.I):
+    core_role = bool(ROLE_PATTERN.search(title))
+    non_it = bool(NON_IT_INFRASTRUCTURE.search(title))
+    if (core_role or (not non_it and INFRASTRUCTURE_ENGINEERING.search(title))) and re.search(
+            r"\b(?:engineer(?:ing)?|sre)\b", title, re.I):
         return True
+    if non_it and not core_role:
+        return False
     # Functional engineering leadership titles may omit the word Engineer.
     functions = r"(?:dev\s*ops|devsecops|platform|cloud|infrastructure|site\s+reliability)"
     return bool(re.search(
@@ -322,10 +334,13 @@ def _employer_quality(job, policy):
     agency_sector = bool(identity_matches and evidence.get('url') and any(
         re.search(r'\b(?:recruitment|recruiting|staffing)\b', str(sector), re.I)
         for sector in evidence.get('sectors', [])))
-    agency_name = re.search(r"\b(?:recruitment|recruiting|staffing|headhunt(?:ing|ers)?|talent\s+(?:solutions|acquisition|partners))\b", company, re.I)
-    agency_page = re.search(r"\b(?:recruitment|recruiting|staffing)\s+(?:agency|agencies|firm|company|consultancy|specialists|group|business|services|solutions)\b|\b(?:we|our team)\s+(?:are|is)\s+(?:a\s+)?(?:specialist\s+)?(?:recruitment|staffing)\b|\b(?:specialist|technology|technical|professional|international)\s+(?:recruitment|recruiting|staffing)\b", employer_text, re.I)
+    company_words = re.sub(r"(?<=[a-z])(?=[A-Z])", " ", company)
+    agency_name = re.search(r"\b(?:recruitment|recruiting|staffing|headhunt(?:ing|ers)?|talent\s+(?:solutions|acquisition|partners))\b", company_words, re.I)
+    agency_page = re.search(r"\b(?:recruitment|recruiting|staffing)\s+(?:agency|agencies|firm|company|consultancy|specialists|group|business|services|solutions)\b|\b(?:we|our team)\s+(?:are|is)\s+(?:a\s+)?(?:specialist\s+)?(?:recruitment|staffing)\b|\b(?:specialist|technology|technical|professional|international)\s+(?:recruitment|recruiting|staffing)\b|\btalent solutions provider\b|\bspeciali[sz]e(?:s)? in (?:[\w-]+\s+){0,5}recruitment\b", employer_text, re.I)
     agency_listing = re.search(r"\b(?:our client (?:is (?:seeking|looking|hiring|recruiting)|seeks)|on behalf of (?:our|a) client|recruiting for (?:our|a) client|client is (?:seeking|looking))\b", description, re.I)
     if agency_name or agency_page or agency_listing or agency_sector:
+        if policy.get("include_agencies"):
+            return "recruitment_agency", "retain", []
         return "excluded_agency", "reject", ["Recruitment agency/client-representation evidence; agency is not an allowed exception"]
     if evidence.get("url") and identity_matches and len(employer_text) >= 60:
         return "direct_employer", "retain", []
@@ -391,6 +406,9 @@ def evaluate_job(job: dict, policy: dict, now: datetime) -> dict:
     now = now.astimezone(UTC)
     reasons, states = [], []
     title = _plain(job.get("title", ""))
+    if hidden_advert_title(title):
+        reasons.append("Title advertises a trainee role or no experience required")
+        states.append("reject")
     if job.get("listing_closed") is True or re.search(r"\b(?:no longer accepting applications|this job is (?:closed|no longer available)|this vacancy (?:has been filled|is closed))\b", job.get("description", "") + "\n" + job.get("employer_listing_text", ""), re.I):
         reasons.append("Actual listing/employer source confirms the vacancy is closed")
         states.append("reject")
@@ -481,6 +499,8 @@ def dedup_keys(job):
     identifier = str(job.get("id", ""))
     if re.fullmatch(r"\d{7,}", identifier):
         keys.append("linkedin:" + identifier)
+    elif re.fullmatch(r"\d{7,}", str(job.get("linkedin_job_id", ""))):
+        keys.append("linkedin:" + str(job["linkedin_job_id"]))
     elif re.fullmatch(r'(?:indeed|totaljobs|glassdoor|welcome|google):[A-Za-z0-9_-]+',identifier):
         keys.append('board:' + identifier)
     for field in ("canonical_apply_url", "preferred_apply_url", "apply_url", "canonical_url", "url"):

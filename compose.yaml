@@ -34,6 +34,10 @@ services:
     init: true
     environment:
       PUBLIC_HTTP2: '1'
+      ASHBY_BOARDS: ${ASHBY_BOARDS:-}
+      TEAMTAILOR_BOARDS: ${TEAMTAILOR_BOARDS:-}
+      WORKABLE_BOARDS: ${WORKABLE_BOARDS:-}
+      LEVER_BOARDS: ${LEVER_BOARDS:-}
     read_only: true
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
@@ -53,6 +57,10 @@ services:
     init: true
     environment:
       PUBLIC_HTTP2: '1'
+      ASHBY_BOARDS: ${ASHBY_BOARDS:-}
+      TEAMTAILOR_BOARDS: ${TEAMTAILOR_BOARDS:-}
+      WORKABLE_BOARDS: ${WORKABLE_BOARDS:-}
+      LEVER_BOARDS: ${LEVER_BOARDS:-}
     restart: unless-stopped
     read_only: true
     cap_drop: [ALL]

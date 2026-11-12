@@ -7,25 +7,44 @@ import json
 import re
 from urllib.parse import parse_qs, urlencode, urljoin, urlsplit
 
+from additional_feeds import FEEDS as EXTRA_FEEDS
 from collector import Document
-from job_feeds import FEEDS
+from job_feeds import FEEDS as EMPLOYER_FEEDS
 from personal_rules import canonical_url
 from public_research import PageParser, ResearchBlocked, job_evidence, objects
+
+FEEDS = {**EMPLOYER_FEEDS, **EXTRA_FEEDS}
 
 SOURCES = {
     'linkedin': 'LinkedIn', 'totaljobs': 'Totaljobs', 'google':'Google',
     **{source: feed.label for source, feed in FEEDS.items()},
 }
 # Kept only to recognize historical URLs and avoid rediscovering removed boards.
-REMOVED_SOURCES = {'indeed', 'glassdoor', 'welcome'}
-LEGACY_SOURCE_NAMES = {'indeed':'Indeed','glassdoor':'Glassdoor','welcome':'Welcome to the Jungle'}
+REMOVED_SOURCES = {'indeed', 'glassdoor', 'welcome', 'adzuna'}
+LEGACY_SOURCE_NAMES = {'indeed':'Indeed','glassdoor':'Glassdoor','welcome':'Welcome to the Jungle','adzuna':'Adzuna'}
 DOMAINS = {'indeed': 'indeed.com', 'totaljobs': 'totaljobs.com',
-           'glassdoor': 'glassdoor.co.uk', 'welcome': 'welcometothejungle.com', 'google':'google.com',
+           'glassdoor': 'glassdoor.co.uk', 'welcome': 'welcometothejungle.com', 'google':'google.com', 'adzuna':'adzuna.com',
            **{source: feed.domain for source, feed in FEEDS.items()}}
 
 
 class DiscoveryIncomplete(ValueError):
     pass
+
+
+def without_retired_sources(config):
+    """Allow saved profiles and config files to outlive removed boards."""
+    def clean(values):
+        if isinstance(values, list) and any(isinstance(item, str) and item in REMOVED_SOURCES for item in values):
+            return [item for item in values if not isinstance(item, str) or item not in REMOVED_SOURCES] or ["linkedin"]
+        return values
+
+    result = dict(config)
+    if "jobSources" in result:
+        result["jobSources"] = clean(result["jobSources"])
+    profile = result.get("localProfile")
+    if isinstance(profile, dict) and "sources" in profile:
+        result["localProfile"] = {**profile, "sources": clean(profile["sources"])}
+    return result
 
 
 def enabled_sources(config):
@@ -39,6 +58,7 @@ def enabled_sources(config):
 def owns(source, url):
     host = (urlsplit(url).hostname or '').lower()
     if source=='google' and (host=='google.co.uk' or host.endswith('.google.co.uk')): return True
+    if source == 'adzuna' and (host == 'adzuna.co.uk' or host.endswith('.adzuna.co.uk')): return True
     domain = DOMAINS.get(source, 'linkedin.com')
     return host == domain or host.endswith('.' + domain)
 
@@ -119,6 +139,35 @@ def check_wall(source):
         raise ResearchBlocked('Public job board returned a challenge/access wall')
 
 
+def totaljobs_pagination(body, url):
+    """Return the advertised next page and whether the current page is last."""
+    current = urlsplit(url)
+    current_query = parse_qs(current.query)
+    page = int(current_query.get('page', ['1'])[0])
+    for nav in Document(body).root.all(tag='nav'):
+        if nav.attrs.get('aria-label', '').casefold() != 'pagination':
+            continue
+        links = nav.all(tag='a')
+        if any(link.attrs.get('aria-current') in {'true', 'page'}
+               and link.attrs.get('aria-label') == f'{page} of {page}' for link in links):
+            return '', True
+        for link in links:
+            href = link.attrs.get('href')
+            if not href:
+                continue
+            try:
+                target = urlsplit(urljoin(url, href))
+            except ValueError:
+                continue
+            if target.scheme != 'https' or target.netloc != current.netloc or target.path != current.path:
+                continue
+            query = parse_qs(target.query)
+            if query.get('page') == [str(page + 1)] and all(
+                    query.get(key) == current_query.get(key) for key in ('postedWithin', 'wfh')):
+                return target._replace(fragment='').geturl(), False
+    return '', False
+
+
 def parse_search(source, body, url):
     if source=='google':
         from google_discovery import parse_results
@@ -139,7 +188,8 @@ def parse_search(source, body, url):
     # Only an explicit empty-result message proves zero. CSR/login/marketing
     # shells and unrecognized markup always remain incomplete.
     text = PageParser(body).text
-    if re.search(r'\b(?:no (?:matching |search )?(?:jobs|results)(?: found| available)?|0 jobs found|we couldn.t find any jobs)\b', text, re.I):
+    totaljobs_empty = source == 'totaljobs' and re.search(r'\bno jobs? matching your search\b', text, re.I)
+    if totaljobs_empty or re.search(r'\b(?:no (?:matching |search )?(?:jobs|results)(?: found| available)?|0 jobs found|we couldn.t find any jobs)\b', text, re.I):
         return []
     raise DiscoveryIncomplete('No recognizable public job links; page may require JavaScript/login or its format changed')
 

@@ -35,6 +35,8 @@ class Renderer:
         await route.continue_()
 
     async def render(self, url):
+        from playwright.async_api import TimeoutError as PlaywrightTimeout
+
         await asyncio.to_thread(validate_url, url)
         async with self.slots:
             context = await self.browser.new_context(locale='en-GB', accept_downloads=False,
@@ -52,12 +54,16 @@ class Renderer:
                 for name in ('Reject all', 'Reject All', 'Just Necessary'):
                     button = page.get_by_role('button', name=name, exact=True)
                     if await button.count() == 1 and await button.is_visible():
-                        await button.click(timeout=2000)
+                        try:
+                            await button.click(timeout=2000)
+                        except PlaywrightTimeout:
+                            # A slow consent action can still leave usable public job HTML.
+                            pass
                         break
                 try:
                     await page.wait_for_function('''() => document.querySelector(
-                        'a[data-jk], a[href*="jobListingId"], a[href*="?jl="], a h3, script[type="application/ld+json"]'
-                    ) || /verify you|access denied|humans only|no jobs found/i.test(document.body.innerText)''', timeout=7000)
+                        'a[data-jk], a[href*="jobListingId"], a[href*="?jl="], a h3, a[href*="/job/"], script[type="application/ld+json"]'
+                    ) || /verify you|access denied|humans only|no jobs found|no jobs? matching your search/i.test(document.body.innerText)''', timeout=7000)
                 except Exception:
                     pass
                 await asyncio.to_thread(validate_url, page.url)

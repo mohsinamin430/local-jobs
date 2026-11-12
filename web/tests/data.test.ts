@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { filterJobs, normalizeJob, parseCsv, safeUrl } from '../src/lib/data.js';
+import { filterJobs, hiddenAdvertTitle, normalizeJob, parseCsv, safeUrl, sourceLabel } from '../src/lib/data.js';
 
 test('CSV parses quoted commas, multiline descriptions, escaped quotes and a BOM', () => {
   const result = parseCsv('\uFEFFTitle,Company,Description,Fit\r\n"DevOps Engineer","Example, Ltd","Build AWS\nUse ""Terraform""",Strong\r\n');
@@ -50,4 +50,24 @@ test('CSV source columns remain visible and imports stay unverified', () => {
   const result=parseCsv('Title,Company,Source\nSRE,Example,indeed\n');
   assert.deepEqual(result.jobs[0].foundOn,['indeed']);
   assert.equal(result.jobs[0].contactStatus,'imported');
+});
+
+
+test('saved and imported trainee titles are hidden while genuine junior roles remain', () => {
+  const csv = 'Title,Company\n"Trainee DevOps Engineer | No experience needed (Ref: 7501)",Example\nJunior DevOps Engineer,Example\nCloud Engineer - no-prior-experience-required,Example\n';
+  const result = parseCsv(csv);
+  assert.deepEqual(result.jobs.filter(job => !hiddenAdvertTitle(job.title)).map(job => job.title), ['Junior DevOps Engineer']);
+  for (const title of ['Platform Engineer Traineeship', 'Cloud Engineer - NO PREVIOUS EXPERIENCE IS NECESSARY']) {
+    assert.equal(hiddenAdvertTitle(title), true, title);
+  }
+  for (const title of ['Graduate Cloud Engineer', 'DevOps Engineer - no Kubernetes experience required']) {
+    assert.equal(hiddenAdvertTitle(title), false, title);
+  }
+});
+
+
+test('Jobs by Qais provenance is labelled consistently in job results', () => {
+  const job = normalizeJob({ title: 'Platform Engineer', source: 'jobsbyqais', found_on: ['jobsbyqais', 'linkedin'] }, 0);
+  assert.equal(sourceLabel(job.source), 'Jobs by Qais');
+  assert.deepEqual(job.foundOn.map(sourceLabel), ['Jobs by Qais', 'LinkedIn']);
 });

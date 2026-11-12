@@ -44,7 +44,7 @@ export function RunControls({ profile, task, submitting, connected, onRun, onCan
       <div className="section-eyebrow"><span className="tiny-line" />YOUR SEARCH, READY TO GO</div>
       <h2 id="search-panel-title">Find your next opportunity.</h2>
       <p>Boards search concurrently. Fresh UK roles are checked against your experience and preferences.</p>
-      <div className="criteria-pills"><span><Clock3 size={13} />Past {profile?.maxAgeHours ?? 24} hours</span><span><Check size={13} />{roles} role variants</span><span><ShieldCheck size={13} />Personal criteria</span></div>
+      <div className="criteria-pills"><span><Clock3 size={13} />Past {profile?.maxAgeHours ?? 24} hours</span><span><Check size={13} />{roles} role variants</span><span><ShieldCheck size={13} />Personal criteria</span>{profile?.includeRecruiters && <span><Check size={13} />Recruiters included</span>}</div>
       <div className="search-scope">{(profile?.workModels || []).map((model, index) => <span key={model}>{index > 0 && <ChevronRight size={12} />}{model === 'on-site' ? profile?.city + ' on-site' : 'UK ' + model}</span>)}</div>
       <fieldset className="source-picker" disabled={active || submitting}><legend className="control-label">Job boards</legend><div>{sourceOptions.map(source=><label key={source.id}><input type="checkbox" checked={selectedSources.includes(source.id)} onChange={event=>setSelectedSources(previous=>event.target.checked ? [...previous,source.id] : previous.filter(value=>value!==source.id))}/><span>{source.name}</span></label>)}</div></fieldset>
       <PublicSearchLinks searches={publicSearches}/>

@@ -1,77 +1,82 @@
-# Job Desk
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { filterJobs, hiddenAdvertTitle, normalizeJob, parseCsv, safeUrl, sourceLabel } from '../src/lib/data.js';
 
-Job Desk is a single-user dashboard for finding UK vacancies, comparing them with your experience, and creating a CV and cover letter. It runs on your machine with Docker Compose.
+test('CSV parses quoted commas, multiline descriptions, escaped quotes and a BOM', () => {
+  const result = parseCsv('\uFEFFTitle,Company,Description,Fit\r\n"DevOps Engineer","Example, Ltd","Build AWS\nUse ""Terraform""",Strong\r\n');
+  assert.equal(result.jobs.length, 1);
+  assert.equal(result.jobs[0].company, 'Example, Ltd');
+  assert.equal(result.jobs[0].description, 'Build AWS\nUse "Terraform"');
+  assert.equal(result.jobs[0].fit, 'Strong');
+  assert.equal(result.jobs[0].contactStatus, 'imported');
+});
 
-## 1. Install the prerequisites
+test('legacy digest columns normalize without inventing verification', () => {
+  const result = parseCsv('Title,Company,Work Type,Why,Hiring Contact,Apply URL\nPlatform Engineer,Example,Hybrid,Some gaps,Alex | Recruiter | https://linkedin.com/in/alex,https://example.com/job/1\n');
+  assert.equal(result.jobs[0].workModel, 'hybrid');
+  assert.equal(result.jobs[0].why, 'Some gaps');
+  assert.equal(result.jobs[0].contactStatus, 'imported');
+  assert.equal(result.jobs[0].applyUrl, 'https://example.com/job/1');
+});
 
-- Install Docker Desktop on Windows or macOS, or Docker Engine with the Compose plugin on Linux.
-- On Windows with WSL 2, start Docker Desktop and enable **Settings → Resources → WSL Integration** for your Linux distribution. Run the commands below in that distribution's terminal.
-- Clone this repository or download and extract it. Open a terminal in the directory containing `compose.yaml`.
+test('malformed quoted fields and unrelated files fail clearly', () => {
+  assert.throws(() => parseCsv('Title,Company\n"unterminated,Example'), /quoted field/);
+  assert.throws(() => parseCsv('a,b\n1,2'), /job-results CSV/);
+  assert.throws(() => parseCsv('Title,Company\n'), /no job rows/);
+});
 
-Check that Docker is running and Compose is available.
+test('unsafe and credential-bearing links are never exposed as navigation targets', () => {
+  assert.equal(safeUrl('javascript:alert(1)'), '');
+  assert.equal(safeUrl('data:text/html,test'), '');
+  assert.equal(safeUrl('https://name:password@example.com/'), '');
+  assert.equal(safeUrl('https://www.linkedin.com/jobs/view/123/'), 'https://www.linkedin.com/jobs/view/123/');
+});
 
-```sh
-docker info
-docker compose version
-```
+test('filtering combines search, work model and fit without mutating source order', () => {
+  const jobs = [normalizeJob({ title: 'Senior DevOps', company: 'B', fit: 'Stretch', work_model: 'hybrid', description: 'Azure' }, 0), normalizeJob({ title: 'Cloud Engineer', company: 'A', fit: 'Strong', work_model: 'remote', description: 'Terraform' }, 1)];
+  assert.equal(filterJobs(jobs, 'terraform', 'Strong', 'remote', 'fit', 'asc').length, 1);
+  assert.equal(filterJobs(jobs, '', '', '', 'fit', 'asc')[0].company, 'A');
+  assert.equal(jobs[0].company, 'B');
+  assert.equal(filterJobs(jobs, '', 'Possible', '', 'title', 'asc').length, 0);
+});
 
-## 2. Start Job Desk
+test('cross-board provenance survives normalization without creating extra rows', () => {
+  const job=normalizeJob({title:'DevOps Engineer',source:'totaljobs',found_on:['totaljobs','glassdoor'],source_urls:['https://example.com/job/1']},0);
+  assert.equal(job.source,'totaljobs');
+  assert.deepEqual(job.foundOn,['totaljobs','glassdoor']);
+});
 
-```sh
-docker compose up -d --build dashboard
-```
+test('CSV source columns remain visible and imports stay unverified', () => {
+  const result=parseCsv('Title,Company,Source\nSRE,Example,indeed\n');
+  assert.deepEqual(result.jobs[0].foundOn,['indeed']);
+  assert.equal(result.jobs[0].contactStatus,'imported');
+});
 
-The first build downloads the base images and dependencies. When it finishes, open [http://127.0.0.1:8788/](http://127.0.0.1:8788/) in your browser. The dashboard listens on the local machine.
 
-## 3. Set up your profile
+test('saved and imported trainee titles are hidden while genuine junior roles remain', () => {
+  const csv = 'Title,Company\n"Trainee DevOps Engineer | No experience needed (Ref: 7501)",Example\nJunior DevOps Engineer,Example\nCloud Engineer - no-prior-experience-required,Example\n';
+  const result = parseCsv(csv);
+  assert.deepEqual(result.jobs.filter(job => !hiddenAdvertTitle(job.title)).map(job => job.title), ['Junior DevOps Engineer']);
+  for (const title of ['Platform Engineer Traineeship', 'Cloud Engineer - NO PREVIOUS EXPERIENCE IS NECESSARY']) {
+    assert.equal(hiddenAdvertTitle(title), true, title);
+  }
+  for (const title of ['Graduate Cloud Engineer', 'DevOps Engineer - no Kubernetes experience required']) {
+    assert.equal(hiddenAdvertTitle(title), false, title);
+  }
+});
 
-On a new install, click **Start setup**.
 
-1. Enter a UK town or city and the job titles you want to search for. Select work arrangements, sources, and how recently jobs must have been posted.
-2. Enter your name, CV headline, and relevant skills. Paste your experience or import text from a PDF CV. Review the extracted text and add projects, education, and links in their respective fields.
-3. Review your profile and click **Save profile**. You can edit it later under **Profile & preferences**.
+test('Jobs by Qais provenance is labelled consistently in job results', () => {
+  const job = normalizeJob({ title: 'Platform Engineer', source: 'jobsbyqais', found_on: ['jobsbyqais', 'linkedin'] }, 0);
+  assert.equal(sourceLabel(job.source), 'Jobs by Qais');
+  assert.deepEqual(job.foundOn.map(sourceLabel), ['Jobs by Qais', 'LinkedIn']);
+});
 
-## 4. Run your first search
 
-On the job search screen, select **Quick check** for a small first run or **Full search** for broader coverage, then click **Run search**. Open a result to review the vacancy and how it matches your profile. Use **Build CV and cover letter** to generate application documents.
+## Jobs by Qais
 
-If a source limits access, check the source status in the dashboard. An incomplete source does not establish that there were no matching jobs.
+**Jobs by Qais** is available in the source picker and profile setup. Your search reads the public embedded jobs list at [jobsbyqais.coderco.io](https://jobsbyqais.coderco.io/#jobs), without a paid API or executing its marketing scripts.
 
-## Optional browser rendering
+The board is used for discovery. The original LinkedIn, Reed or employer vacancy is verified before a job qualifies. Board refresh dates, skill tags and entry-level labels are not proof of a newly posted vacancy or a hybrid arrangement. Date-only discovery values can prune clearly old candidates; exact-listing evidence still has to establish the configured posting window. Pay-to-train adverts and the existing trainee/no-experience title exclusions stay excluded. Links to the previously removed Indeed, Glassdoor, Welcome to the Jungle and Adzuna sources are skipped.
 
-To run the dashboard with its browser rendering service, use the Compose overlay.
-
-```sh
-docker compose -f compose.yaml -f compose.browser.yaml --profile browser up -d --build dashboard
-```
-
-## Check, stop, or update the app
-
-```sh
-docker compose ps
-docker compose logs --tail=100 dashboard
-docker compose stop
-docker compose up -d --build dashboard
-```
-
-Use `ps` and `logs` if the page does not open. If startup reports a port conflict, free port `8788` and rerun the start command. After updating the source, rerun the build command to apply the changes. If you enabled browser rendering, use the overlay command above to rebuild.
-
-Your saved profile and search history are stored in the `jobs-data` Docker volume. Stopping or rebuilding the dashboard preserves that volume. Removing the volume, for example with `docker compose down -v`, deletes the saved profile and history. Keep CVs, local settings, and exports out of Git.
-
-## Repository layout
-
-| Path | Contents |
-| --- | --- |
-| `backend/` | Python dashboard API, job collector, browser service, and document generation |
-| `web/` | React dashboard and frontend tests |
-| `docker/` | Image build files and browser security profile |
-| `config/` | Placeholder for optional local configuration |
-| `compose.yaml` | Local services and data volume |
-| `compose.browser.yaml` | Optional browser rendering overlay |
-
-## Employer feeds
-
-Select **Greenhouse** or **SmartRecruiters** in the dashboard to check employer career feeds.
-The starter watchlist covers Monzo through Greenhouse and Version 1 through SmartRecruiters.
-These are employer-specific feeds. Job Desk still checks the role, freshness, UK eligibility,
-and work arrangement before including a vacancy.
+Verified hybrid jobs can be anywhere in the UK. The on-site city preference applies to on-site jobs, and remote roles still require UK eligibility. A city alone, a UK label or the word “hybrid” on a discovery page does not prove the arrangement. Jobs are merged with matching openings found through other sources and show **Jobs by Qais** as provenance. Missing dates, access failures and changed board data are recorded as incomplete or unverified rather than zero results.

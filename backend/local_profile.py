@@ -11,7 +11,7 @@ def blank_profile():
     return dict(name="", title="", city="", roles=[], workModels=list(MODELS),
                 sources=list(SOURCES), maxAgeHours=24, skills=[], evidence="", projects="",
                 education="", email="", links=[], excludedEmployers=[], allowedAgencies=[],
-                contactResearch=True, trackerUrl="")
+                contactResearch=True, trackerUrl="", includeRecruiters=False)
 
 
 def safe_link(value):
@@ -73,6 +73,7 @@ def build_config(profile):
             "version": "local-profile-v1", "roles": profile["roles"], "onsite_city": city,
             "work_models": models, "max_age_hours": hours,
             "allowed_agencies": profile["allowedAgencies"], "excluded_employers": profile["excludedEmployers"],
+            "include_agencies": profile.get("includeRecruiters", False),
             "candidate": {"name": profile["name"], "title": profile["title"],
                           "location": f"{city}, United Kingdom", "skills": profile["skills"]},
             "verification": {"maxRequests": 3000, "maxPagesPerJob": 3, "requestDelaySeconds": 2},

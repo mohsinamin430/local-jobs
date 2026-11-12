@@ -23,7 +23,9 @@ import time
 from urllib.parse import parse_qs, unquote, urlsplit
 from uuid import uuid4
 from rate_control import LinkedInControl, combined_cooldown, source_cooldowns
-from job_boards import FEEDS, SOURCES, enabled_sources, search_url
+from job_boards import FEEDS, SOURCES, enabled_sources, search_url, without_retired_sources
+
+from external_digest import ExternalDigest, DigestError
 
 LOG = logging.getLogger("job-desk")
 SAFE_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,100}\Z")
@@ -269,7 +271,7 @@ class Runner:
             path = config_path(self.data)
             if self.require_profile and not path.is_file():
                 raise APIError(409, "Save your profile before running a search.")
-            configured = read_json(path, {})
+            configured = without_retired_sources(read_json(path, {}))
             selected = sources or enabled_sources(configured)
             if self.active:
                 raise APIError(409, "A collection is already running")
@@ -418,14 +420,41 @@ class DashboardApp:
         self.store = RunStore(sources)
         self.runner = runner or Runner(self.project, self.data)
         self.runner.require_profile = True
+        self.external_digest = ExternalDigest(self.data)
         self.assessments = {}
         self.assessment_lock = threading.Lock()
 
+    def external_digest_status(self):
+        status = self.external_digest.status()
+        if not status["configured"]:
+            defaults = read_json(self.project / "config/external-digest-defaults.json", {})
+            status["folder"] = defaults.get("folder", "")
+        return status
+
+    def external_digest_action(self, action, payload, port):
+        try:
+            if action == "settings":
+                with self.runner.lock:
+                    if self.runner.active:
+                        raise APIError(409, "Wait for the current search to finish before changing the external digest connection.")
+                    return self.external_digest.configure(payload)
+            if action == "connect":
+                return self.external_digest.connect(port)
+            if action == "refresh":
+                self.external_digest.sync()
+                return self.external_digest.status()
+        except DigestError as error:
+            raise APIError(422, str(error)) from error
+        raise APIError(404, "Unknown external digest action")
+
     def profile_settings(self):
-        saved = read_json(self.data / "profile.json", {}).get("localProfile")
+        config = without_retired_sources(read_json(self.data / "profile.json", {}))
+        saved = config.get("localProfile")
+        defaults = blank_profile()
+        defaults["includeRecruiters"] = bool(config.get("personalPolicy", {}).get("include_agencies", False))
         if saved:
-            return {"values": saved, "configured": True}
-        return {"values": blank_profile(), "configured": False}
+            return {"values": {**defaults, **saved}, "configured": True}
+        return {"values": defaults, "configured": False}
 
     def update_profile(self, payload):
         try:
@@ -450,8 +479,10 @@ class DashboardApp:
         if any(not isinstance(payload.get(key, ""), str) for key in fields):
             raise APIError(400, "Invalid vacancy fields")
         job = {key: payload.get(key, "").strip() for key in fields}
-        if not job["title"] or not job["company"] or max(len(job["title"]), len(job["company"])) > 180:
-            raise APIError(400, "A vacancy title and employer are required")
+        if max(len(job["title"]), len(job["company"])) > 180:
+            raise APIError(400, "Vacancy title and employer must be at most 180 characters.")
+        if not (job["url"] or job["applyUrl"]) and not (job["title"] and job["company"]):
+            raise APIError(400, "Enter a vacancy URL, or provide the advert text, job title and employer.")
         job["imported"] = True  # Client-supplied contact fields must be independently verified.
         job["apply_url"] = job["applyUrl"]
         run_id, run_source, job_id = (payload.get(key) for key in ("runId", "runSource", "jobId"))
@@ -500,7 +531,7 @@ class DashboardApp:
         try:
             settings = self.profile_settings()
             if settings["configured"]:
-                config = read_json(config_path(self.data), {})
+                config = without_retired_sources(read_json(config_path(self.data), {}))
             candidate = config.get("personalPolicy", {}).get("candidate", {})
             profile = {"name": candidate.get("name", ""), "location": candidate.get("location", ""),
                        "roles": config.get("roleVariants", []), "bucketTargets": config.get("bucketTargets", {}),
@@ -508,6 +539,7 @@ class DashboardApp:
                        "trackerUrl": settings["values"]["trackerUrl"],
                        "city": settings["values"]["city"],
                        "maxAgeHours": settings["values"]["maxAgeHours"],
+                       "includeRecruiters": bool(config.get("personalPolicy", {}).get("include_agencies", False)),
                        "workModels": list(config.get("searchLocations", {"remote": "", "hybrid": "", "on-site": ""})),
                        "sourceCvTitle": candidate.get("source_cv", {}).get("title", "Saved profile")}
         except (ValueError, OSError, TypeError):
@@ -520,7 +552,7 @@ class DashboardApp:
         active = self.runner.active
         valid_checkpoint_sources = all(source in SOURCES for source in checkpoint.get('sources', ['linkedin']))
         resume_available = bool(valid_checkpoint_sources and not active and checkpoint.get('resumable') and checkpoint.get('signature')==signature and time.time()-checkpoint.get('created_at',0)<86400)
-        return {"runs": rows, "active": active, "profile": profile, "sources": list(self.store.sources), "issues": issues,
+        return {"externalDigest": self.external_digest_status(), "runs": rows, "active": active, "profile": profile, "sources": list(self.store.sources), "issues": issues,
                 'googleSearches':[{'role':role,'bucket':bucket,'url':search_url('google',role,bucket,config=config)} for role in config.get('roleVariants',[]) for bucket in profile.get("workModels", []) if "google" in enabled_sources(config)],
                 'publicSearches':[{'source':source,'role':role,'bucket':bucket,'url':search_url(source,role,bucket,config=config)} for source in enabled_sources(config) if source not in FEEDS and source!='linkedin' for role in config.get('roleVariants',[]) for bucket in profile.get("workModels", [])],
                 'rateLimit':combined_cooldown(self.data,list(SOURCES)), 'sourceRates':source_cooldowns(self.data,list(SOURCES)),
@@ -533,6 +565,9 @@ def make_server(app, host="127.0.0.1", port=8787):
         server_version = "JobDesk/1"
 
         def log_message(self, message, *args):
+            if self.path.split("?", 1)[0] == "/api/external-digest/callback":
+                LOG.info("Google OAuth callback handled")
+                return
             LOG.info(message, *args)
 
         def _validate_host(self):
@@ -577,7 +612,7 @@ def make_server(app, host="127.0.0.1", port=8787):
                 try:
                     length = int(self.headers.get("Content-Length", "0"))
                     limit = {"/api/profile/import-cv": 8_500_000, "/api/profile": 500_000,
-                             "/api/applications/evaluate": 100_000}.get(path, 8192)
+                             "/api/applications/evaluate": 100_000, "/api/external-digest/settings": 70_000}.get(path, 8192)
                     if not 0 < length <= limit:
                         raise APIError(413, "Request body is missing or too large")
                     payload = json.loads(self.rfile.read(length))
@@ -585,6 +620,8 @@ def make_server(app, host="127.0.0.1", port=8787):
                     raise APIError(400, "Invalid JSON body")
                 if not isinstance(payload, dict):
                     raise APIError(400, "JSON body must be an object")
+                if len(parts) == 3 and parts[:2] == ["api", "external-digest"]:
+                    return self._json(app.external_digest_action(parts[2], payload, self.server.server_port))
                 if parts == ["api", "profile"]:
                     return self._json(app.update_profile(payload))
                 if parts == ["api", "profile", "import-cv"]:
@@ -608,6 +645,15 @@ def make_server(app, host="127.0.0.1", port=8787):
                 raise APIError(404, "Action not found")
             if self.command != "GET":
                 raise APIError(405, "Method not allowed")
+            if parts == ["api", "external-digest"]:
+                return self._json(app.external_digest_status())
+            if parts == ["api", "external-digest", "callback"]:
+                try:
+                    app.external_digest.callback(query)
+                except DigestError as error:
+                    raise APIError(422, str(error)) from error
+                self._headers(303, "text/plain", 0, {"Location": f"http://localhost:{self.server.server_port}/?digest=connected"})
+                return
             if parts == ["api", "profile"]:
                 return self._json(app.profile_settings())
             if parts == ["api", "overview"]:

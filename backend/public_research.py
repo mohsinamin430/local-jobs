@@ -170,7 +170,7 @@ class PublicResearch:
         A renderer never turns a challenge into an empty/checked result. HTTP
         429 still leaves this action with the concurrent source scheduler.
         """
-        from browser_client import needs_render, render_page
+        from browser_client import BrowserTransportError, needs_render, render_page
         endpoint = os.environ.get('BROWSER_RENDER_URL', '')
         for attempt in range(3):
             try:
@@ -209,6 +209,10 @@ class PublicResearch:
             body = result['html']
             # Do not cache a shell/challenge as successful research.
             if needs_render(url, body):
+                from google_discovery import google_host, parse_results
+                if google_host(urlsplit(url).hostname):
+                    # Preserve the distinction between a traffic challenge and unreadable results.
+                    parse_results(body, result['url'])
                 title = re.search(r'<title[^>]*>(.*?)</title>',body,re.I|re.S)
                 hint = PageParser(title[1]).text[:100] if title else 'untitled page'
                 raise ResearchBlocked(f'Browser returned no usable public job data ({hint}); challenge, consent or JavaScript shell remains')
@@ -221,7 +225,9 @@ class PublicResearch:
             record['status'] = 'rate_limited'
             raise
         except Exception as failure:
-            record.update(status='blocked' if isinstance(failure, ResearchBlocked) else 'failed', error=str(failure))
+            from job_boards import DiscoveryIncomplete
+            status = 'blocked' if isinstance(failure, ResearchBlocked) else 'incomplete' if isinstance(failure, (DiscoveryIncomplete, BrowserTransportError)) else 'failed'
+            record.update(status=status, error=str(failure))
             raise
 
     def _get_http(self, url):

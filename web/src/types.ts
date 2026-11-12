@@ -18,7 +18,15 @@ export interface Task {
 
 export interface BoardProgress { name:string; state:string; retryAtEpoch:number; retryCount:number; waitingOn:string; action?:string; error?:string }
 
+export interface ExternalDigestState {
+  configured: boolean; connected: boolean; clientUploaded: boolean;
+  folder: string; prefix: string; tab: string; status: 'ok' | 'incomplete';
+  asOf: string; checkedAt: string; count: number | null; message: string;
+  sources: { title: string; url: string; tab: string }[];
+}
+
 export interface Overview {
+  externalDigest?: ExternalDigestState;
   rateLimit?: Cooldown; resumeAvailable?: boolean;
   resumeOptions?: {id?: string;maxJobs:number|null;sources?:string[]};
   jobSources?: {id:string;name:string}[];
@@ -26,7 +34,7 @@ export interface Overview {
   publicSearches?: {source:string;role:string;bucket:string;url:string}[];
   sourceRates?: Record<string,Cooldown>;
   runs: Run[]; active: Task | null;
-  profile: { name: string; roles: string[]; bucketTargets: Record<string, number>; sourceCvTitle?: string; jobSources?:string[]; location?:string; city?:string; ready?:boolean; trackerUrl?:string; maxAgeHours?:number; workModels?:string[] };
+  profile: { name: string; roles: string[]; bucketTargets: Record<string, number>; sourceCvTitle?: string; jobSources?:string[]; location?:string; city?:string; ready?:boolean; trackerUrl?:string; maxAgeHours?:number; workModels?:string[]; includeRecruiters?:boolean };
   sources: string[];
 }
 

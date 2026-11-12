@@ -82,12 +82,22 @@ def format_salary(bounds):
 
 def evaluate(job, data, profile):
     research = PublicResearch(max_requests=10, delay=0, limiter=LinkedInControl(data))
+    resolved = None
+    if not job.get("title") or not job.get("company"):
+        from vacancy_resolver import resolve_vacancy
+        resolved = resolve_vacancy(job.get("url") or job.get("applyUrl"), research)
+        for field in ("title", "company", "description", "url", "location", "workModel", "salary"):
+            if resolved.get(field) and (not job.get(field) or field in {"title", "company", "description"}):
+                job[field] = resolved[field]
+        if resolved.get("apply_url"):
+            job["applyUrl"] = resolved["apply_url"]
+            job["apply_url"] = resolved["apply_url"]
     pasted = job.get("pasted", "").strip()
     description = pasted or job.get("description", "").strip()
-    source = "Pasted vacancy text" if pasted else "Saved listing"
-    evidence = []
-    posting = {}
-    for url in dict.fromkeys([job.get("applyUrl"), job.get("url")]):
+    source = "Pasted vacancy text" if pasted else "Exact public listing" if resolved else "Saved listing"
+    evidence = ([{"url": resolved["_evidence_url"], "status": "Exact vacancy identified"}] if resolved else [])
+    posting = resolved.get("_posting", {}) if resolved else {}
+    for url in ([] if resolved else dict.fromkeys([job.get("applyUrl"), job.get("url")])):
         if not url:
             continue
         try:
@@ -139,13 +149,29 @@ def evaluate(job, data, profile):
         "Travel": excerpt(r"\b(?:travel|commut(?:e|ing)|office days)\b"),
         "Closing date": excerpt(r"\b(?:closing date|applications close|apply by|application deadline)\b"),
     }
+    for label, field in (("Employment type", "employmentType"), ("Job reference", "identifier"), ("Closing date", "validThrough")):
+        value = posting.get(field)
+        if isinstance(value, dict):
+            value = value.get("value") or value.get("name")
+        if isinstance(value, list):
+            value = ", ".join(str(item) for item in value)
+        if value and details[label] == "Not stated in available text":
+            details[label] = str(value)
+    details["Posting date"] = str(posting.get("datePosted") or posting.get("datePublished") or "Not stated")
+    specific_clearance = excerpt(r"\b(?:Security Check\s*\(SC\)|Developed Vetting\s*\(DV\)|SC|DV)\s+clearance\b")
+    if specific_clearance != "Not stated in available text":
+        details["Security clearance"] = specific_clearance
     if details["Work arrangement"] == "Not stated in available text" and job.get("workModel") in {"remote", "hybrid", "on-site"}:
-        details["Work arrangement"] = job["workModel"].capitalize() + " (saved listing)"
+        details["Work arrangement"] = job["workModel"].capitalize() + (" (exact listing)" if resolved else " (saved listing)")
     pay = job.get("salary", "").strip()
     published = excerpt(r"(?:salary|base pay|day rate|per annum|per day).{0,100}£|£.{0,100}(?:salary|per annum|per day|a year)")
     if PAY.search(published):
         pay = published
-    salary_status = "Vacancy text" if PAY.search(published) else "Saved listing value"
+    salary_status = "Saved listing value"
+    if PAY.search(published):
+        salary_status = "Vacancy text"
+    elif resolved and resolved.get("salary"):
+        salary_status = "Published on the matched vacancy"
     exact_salary = annual_salary(posting)
     if exact_salary:
         pay, salary_status = format_salary(exact_salary), "Published on the matched vacancy"

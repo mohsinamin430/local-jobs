@@ -540,7 +540,8 @@ def main():
         if args.command == "status":
             print((args.data_dir / "latest.json").read_text(encoding="utf-8"))
             return 0
-        config = json.loads(args.config.read_text(encoding="utf-8-sig"))
+        from job_boards import without_retired_sources
+        config = without_retired_sources(json.loads(args.config.read_text(encoding="utf-8-sig")))
         if args.sources:
             config['jobSources'] = args.sources.split(',')
         if args.command == "plan":

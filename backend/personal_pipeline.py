@@ -26,7 +26,15 @@ LOG = logging.getLogger("local-jobs")
 UTC = timezone.utc
 
 
-def index_jobs(config, now):
+def index_jobs(config, now, data_dir=None):
+    if data_dir is not None and (Path(data_dir) / "external-digest/settings.json").is_file():
+        from external_digest import ExternalDigest, DigestError
+        try:
+            rows, report = ExternalDigest(data_dir).sync(now)
+            return rows, [report]
+        except (DigestError, OSError) as error:
+            return [], [{"status": "incomplete", "source": "google_sheets",
+                         "error": str(error)}]
     rows, reports = [], []
     for value in config.get("crossDigestPaths", []):
         path = Path(value)
@@ -38,7 +46,8 @@ def index_jobs(config, now):
                 raise ValueError("A digest index requires jobs plus an as_of date; an undated list is not current")
             report.update(as_of=document.get("as_of", ""), source_url=document.get("source_url", ""))
             if document.get("as_of", "")[:10] != now.astimezone(ZoneInfo("Europe/London")).date().isoformat():
-                report["error"] = "Cross-digest snapshot is not from today's execution date; supply a fresh index"
+                report["error"] = ("External digest snapshot is dated " + str(document.get("as_of") or "unknown") +
+                                   "; a same-day index is required. Connect Google in Profile & preferences > External digest for automatic refresh.")
             else:
                 rows.extend(document.get("jobs", []))
                 report.update(status="ok", count=len(document.get("jobs", [])))
