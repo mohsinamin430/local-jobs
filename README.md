@@ -90,36 +90,6 @@ The source picker includes LinkedIn, Totaljobs, Google, Greenhouse, SmartRecruit
 
 Greenhouse, SmartRecruiters, Lever, Ashby, Teamtailor and Workable use employer-specific watchlists rather than searching every company.
 
-## Read-only external Google Sheets digest
-
-Open **Profile & preferences → External Google Sheets digest** to compare jobs against a separate daily Google Sheet. This connection is independent of any Google account connected to Codex.
-
-1. In a [Google Cloud project](https://console.cloud.google.com/), enable **Google Drive API** and **Google Sheets API**.
-2. Configure the OAuth consent screen for your account. If it is in Testing mode, add yourself as a test user.
-3. Create an OAuth client with application type **Desktop app** and download its JSON file.
-4. Enter the Drive folder URL or ID containing your daily sheets. The default prefix **Jobs** matches **Jobs -- YYYY-MM-DD**, using the UK execution date. A single en dash or em dash separator is also recognised.
-5. Optionally enter the exact jobs tab name when the sheet has several tabs.
-6. Upload the client JSON, save the settings, choose **Connect Google**, and allow both read-only permissions.
-7. Choose **Refresh index**. Google returns to this install's local port after authorisation.
-
-The app requests Drive metadata read access and Sheets read access. It never edits or publishes your sheets. Credentials and refresh tokens stay under **external-digest/** in the private data directory, with owner-only file permissions.
-
-Each collection refreshes the index, including CLI runs using the same data directory. All matching same-day sheets in the selected folder are checked. A recognised header-only jobs table is a verified empty index. Missing, inaccessible, ambiguous or malformed sources remain **Incomplete**. An old snapshot is never simply given a newer date.
-
-Recognised columns include **Title**, **Company**, **Location**, **Apply URL**, **Job URL** and **Job ID**. Each populated row needs an ID, a job/apply URL, or all three title/company/location fields. External matches are excluded before hiring-contact research; deduplication across this app's boards remains separate.
-
-Historical runs retain the comparison status recorded when they ran. If today's digest does not yet exist, its producer must run before a complete comparison is possible. Reconnect if Google expires the authorisation, which may happen more frequently while an OAuth app stays in Testing mode.
-
-Implementation references: [Google desktop OAuth](https://developers.google.com/identity/protocols/oauth2/native-app), [Drive file search](https://developers.google.com/workspace/drive/api/guides/search-files), [Sheets values API](https://developers.google.com/workspace/sheets/api/reference/rest/v4/spreadsheets.values/get).
-
-## Jobs by Qais
-
-**Jobs by Qais** is available in the source picker and profile setup. Your search reads the public embedded jobs list at [jobsbyqais.coderco.io](https://jobsbyqais.coderco.io/#jobs), without a paid API or executing its marketing scripts.
-
-The board is used for discovery. The original LinkedIn, Reed or employer vacancy is verified before a job qualifies. Board refresh dates, skill tags and entry-level labels are not proof of a newly posted vacancy or a hybrid arrangement. Date-only discovery values can prune clearly old candidates; exact-listing evidence still has to establish the configured posting window. Pay-to-train adverts and the existing trainee/no-experience title exclusions stay excluded. Links to the previously removed Indeed, Glassdoor, Welcome to the Jungle and Adzuna sources are skipped.
-
-Verified hybrid jobs can be anywhere in the UK. The on-site city preference applies to on-site jobs, and remote roles still require UK eligibility. A city alone, a UK label or the word “hybrid” on a discovery page does not prove the arrangement. Jobs are merged with matching openings found through other sources and show **Jobs by Qais** as provenance. Missing dates, access failures and changed board data are recorded as incomplete or unverified rather than zero results.
-
 ## Private data and Git
 
 Candidate profiles, CV content, generated documents, application trackers, job exports, Google OAuth credentials and cached external indexes belong in the private data volume or ignored local directories. A fresh install contains no candidate identity or experience.
