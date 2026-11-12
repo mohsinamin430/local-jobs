@@ -21,10 +21,25 @@ web/dist/
 *.pem
 *.key
 
+# Private credentials and downloaded client configuration
 client_secret*.json
-
 credentials.json
-
 token.json
-
 oauth-client*.json
+external-digest/
+profile.json
+local-profile.json
+
+# CVs, application trackers and exported results
+*.doc
+*.docx
+*.odt
+*.xlsx
+*.xlsm
+*.xls
+*.ods
+*.csv
+*.tsv
+*.7z
+*.p12
+*.pfx
